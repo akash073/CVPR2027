@@ -1,0 +1,305 @@
+import argparse
+import csv
+import json
+import os
+import subprocess
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+
+# ══════════════════════════════ SETTINGS ══════════════════════════════════════
+# Datasets to run, in order. Comment out lines you do not want.
+# name: (training script, extra flags for that dataset)
+DATASETS = {
+     'fmnist':         ('fmnist.py',       []),
+     'svhn':         ('svhn.py',         []),
+     'cifar10':      ('cifar10.py',      []),
+     'cifar100':     ('cifar100.py', ['--dims', '2,4,8,12,16,24,32,48,64,96,128,192,256, mle*0.5,mle*0.75,mle,pca,erank,cap,mle*1.25,mle*1.5,full']),
+     'tinyimagenet': ('tinyimagenet200.py', ['--dims', '2,4,8,12,16,24,32,48,64,96,128,192,256, mle*0.5,mle*0.75,mle,pca,erank,cap,mle*1.25,mle*1.5,full']),
+}
+
+# ── Teacher(s) ────────────────────────────────────────────────────────────────
+# Each teacher gets its own output folders, so ViT-B/32 and ViT-L/14 results never mix.
+# Keys are short tags used in folder names. Uncomment 'vitb32' to run both teachers.
+TEACHERS = {
+
+    #'vith14': {'model': 'ViT-H-14', 'pretrained': 'laion2b_s32b_b79k', 'dim': 1024},
+
+    #'vitl14': {'model': 'ViT-L-14', 'pretrained': 'laion2b_s32b_b82k', 'dim': 768},
+    'vitb32': {'model': 'ViT-B-32', 'pretrained': 'laion2b_s34b_b79k', 'dim': 512},
+}
+
+# Student models to run on every dataset.
+# Options: resnet18, resnet50, mobilenet_v2, mobilenet_v3_large, efficientnet_b0, convnext_tiny
+STUDENTS = [
+    'resnet18',
+    'mobilenet_v2',
+    'efficientnet_b0',
+]
+# ── Core training settings ────────────────────────────────────────────────────
+EPOCHS_DEFAULT = 50          # use a small value (e.g. 5) only for quick tests
+SEEDS = '42'           # three seeds so standard deviations are defined
+MODES = 'labels,feat,rkd,crd,dkd,vl2lite,sskd,clipkd'
+
+# Grid starts at 2 so a plateau at the smallest width can be detected (d_1pp < 8)
+DIMS = ('2,4,8,12,16,24,32,48,64,96,128,'
+        'mle*0.5,mle*0.75,mle,pca,erank,cap,mle*1.25,mle*1.5,full')
+
+# Subset the training set for quick tests; set to None for full-data runs.
+MAX_TRAIN = None             # e.g. 2000 for a smoke test
+
+# Ablations: each gets its own output folder. 'main' uses student-only augmentation;
+# 'matched_views' trains on un-augmented images, so teacher and student see the same view.
+ABLATIONS = {
+    'main':          [],
+    #'matched_views': ['--no-augment'],
+}
+
+GPUS = '0'          # e.g. '0,1' for two GPUs
+NUM_WORKERS = 4     # dataloader workers per run
+
+# Extra flags added to EVERY run, e.g. ['--label-smoothing', '0']
+EXTRA_FLAGS = []
+
+DATA_ROOT    = './data'
+RESULTS_ROOT = 'results'    # output: results/<teacher>/<dataset>_<student>_e<epochs>/
+SKIP_FINISHED = True        # skip runs whose pareto_summary.csv is complete
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def out_folder(teacher: str, dataset: str, student: str, epochs: int,
+               ablation: str = 'main') -> Path:
+    suffix = '' if ablation == 'main' else f'_{ablation}'
+    tag = '' if MAX_TRAIN is None else f'_n{MAX_TRAIN}'
+    return Path(RESULTS_ROOT) / teacher / f'{dataset}_{student}_e{epochs}{tag}{suffix}'
+
+
+def run_state(out: Path) -> str:
+    """Return 'done', 'resume', or 'new' for an output folder."""
+    summary_csv  = out / 'pareto_summary.csv'
+    per_seed_csv = out / 'results_per_seed.csv'
+
+    try:
+        sel = json.loads((out / 'selection.json').read_text(encoding='utf-8'))
+        if sel.get('complete') is False:
+            return 'resume'
+    except FileNotFoundError:
+        pass
+    except Exception:
+        return 'resume'
+    try:
+        if json.loads((out / 'missing_runs.json').read_text(encoding='utf-8')):
+            return 'resume'
+    except FileNotFoundError:
+        pass
+    except Exception:
+        return 'resume'
+
+    if summary_csv.exists():
+        try:
+            with open(summary_csv, newline='', encoding='utf-8') as f:
+                rows = list(csv.DictReader(f))
+        except Exception:
+            return 'resume'
+        if not rows:
+            return 'resume'
+
+        want_seeds = len([s for s in str(SEEDS).split(',') if s.strip()])
+        want_modes = {m.strip() for m in MODES.split(',') if m.strip()}
+        have_modes = {r.get('mode', '') for r in rows}
+        try:
+            min_seeds = min(int(r['n_seeds']) for r in rows if r.get('n_seeds', '').strip())
+        except (ValueError, KeyError):
+            return 'resume'
+
+        if min_seeds >= want_seeds and want_modes <= have_modes:
+            return 'done'
+        return 'resume'
+
+    return 'resume' if per_seed_csv.exists() else 'new'
+
+
+def build_command(teacher: str, dataset: str, student: str, epochs: int, out: Path,
+                  resume: bool, ablation: str = 'main') -> list:
+    """Build the subprocess command for one (teacher, dataset, student) run."""
+    script, dataset_flags = DATASETS[dataset]
+    t = TEACHERS[teacher]
+    cmd = [
+        sys.executable, '-u', script,
+        '--teacher',      t['model'],
+        '--pretrained', t['pretrained'],
+        '--student',     student,
+        '--epochs',      epochs,
+        '--seeds',       SEEDS,
+        '--modes',       MODES,
+        '--dims',        DIMS,
+        '--gpus',        GPUS,
+        '--num-workers', NUM_WORKERS,
+        '--data-root',   DATA_ROOT,
+        '--out',         out,
+    ]
+    if MAX_TRAIN is not None:
+        cmd += ['--max-train', MAX_TRAIN]
+    cmd += list(dataset_flags)
+    cmd += list(EXTRA_FLAGS)
+    cmd += list(ABLATIONS[ablation])
+    if resume:
+        cmd.append('--resume')
+    return [str(c) for c in cmd]
+
+
+def run_and_log(cmd: list, log_path: Path) -> int:
+    """Run a command, stream output to console and append to log_path."""
+    env = dict(os.environ, PYTHONIOENCODING='utf-8')
+    with open(log_path, 'a', encoding='utf-8') as log:
+        log.write(f"\n===== {datetime.now():%Y-%m-%d %H:%M:%S} =====\n"
+                  f"{' '.join(cmd)}\n")
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, encoding='utf-8', errors='replace', env=env)
+        for line in proc.stdout:
+            print(line, end='', flush=True)
+            log.write(line)
+        return proc.wait()
+
+
+def print_separator(char='=', width=78):
+    print(char * width)
+
+
+def check_settings():
+    """Catch common setting mistakes before any run starts."""
+    for name, items in {'EXTRA_FLAGS': EXTRA_FLAGS,
+                        **{f'ABLATIONS[{k!r}]': v for k, v in ABLATIONS.items()},
+                        **{f'DATASETS[{k!r}] flags': v[1] for k, v in DATASETS.items()}}.items():
+        if not isinstance(items, (list, tuple)):
+            sys.exit(f'Setting error: {name} must be a list, got {items!r}')
+    for tag, t in TEACHERS.items():
+        missing = {'model', 'pretrained', 'dim'} - set(t)
+        if missing:
+            sys.exit(f'Setting error: TEACHERS[{tag!r}] is missing {sorted(missing)}')
+    if EPOCHS_DEFAULT < 20:
+        print(f'Warning: EPOCHS_DEFAULT = {EPOCHS_DEFAULT} is a test setting, not a final run.')
+    if len(str(SEEDS).split(',')) < 2:
+        print('Warning: only one seed; standard deviations will be unavailable.')
+    if MAX_TRAIN is not None:
+        print(f'Warning: MAX_TRAIN = {MAX_TRAIN}; results use a training subset.')
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument('--dry-run', action='store_true',
+                   help='Print the runs without executing them')
+    a = p.parse_args()
+
+    missing = sorted({s for s, _ in DATASETS.values() if not Path(s).exists()})
+    if missing and not a.dry_run:
+        sys.exit(f'Training script(s) not found in {Path.cwd()}:\n  ' + '\n  '.join(missing))
+
+    check_settings()
+    jobs = [(teacher, dataset, student, abl)
+            for teacher in TEACHERS for abl in ABLATIONS
+            for dataset in DATASETS for student in STUDENTS]
+    Path(RESULTS_ROOT).mkdir(parents=True, exist_ok=True)
+
+    print_separator()
+    print(f'Experiments  : {len(jobs)}  ({len(TEACHERS)} teacher(s) x {len(DATASETS)} '
+          f'dataset(s) x {len(STUDENTS)} student(s) x {len(ABLATIONS)} ablation(s))')
+    for tag, t in TEACHERS.items():
+        print(f'Teacher      : {tag} = {t["model"]} / {t["pretrained"]} (dim {t["dim"]})')
+    print(f'Seeds        : {SEEDS}')
+    print(f'Modes        : {MODES}')
+    print(f'Dims         : {DIMS}')
+    print(f'Epochs       : {EPOCHS_DEFAULT}')
+    print(f'Max train    : {MAX_TRAIN if MAX_TRAIN is not None else "full"}')
+    print(f'GPUs         : {GPUS}')
+    print(f'Results root : {Path(RESULTS_ROOT).resolve()}')
+    print_separator()
+
+    summary_rows = []
+    t_all = time.time()
+
+    for i, (teacher, dataset, student, ablation) in enumerate(jobs, 1):
+        epochs = EPOCHS_DEFAULT
+        out    = out_folder(teacher, dataset, student, epochs, ablation)
+        state  = run_state(out)
+        script = DATASETS[dataset][0]
+        cmd    = build_command(teacher, dataset, student, epochs, out,
+                               resume=(state == 'resume'), ablation=ablation)
+
+        print()
+        print_separator()
+        print(f'[{i}/{len(jobs)}]  Script  : {script}')
+        print(f'         Teacher : {teacher} ({TEACHERS[teacher]["model"]})')
+        print(f'         Dataset : {dataset}')
+        print(f'         Student : {student}')
+        print(f'         Ablation: {ablation}')
+        print(f'         Epochs  : {epochs}')
+        print(f'         Output  : {out}')
+        print(f'         Status  : {state}')
+        print(f"         Command : {' '.join(cmd)}")
+        print('=' * 78, flush=True)
+
+        base_row = {'teacher': teacher, 'dataset': dataset, 'student': student,
+                    'ablation': ablation, 'epochs': epochs, 'script': script,
+                    'folder': str(out)}
+
+        if state == 'done' and SKIP_FINISHED:
+            print('  -> Skipping: already finished.')
+            summary_rows.append({**base_row, 'status': 'skipped (finished)', 'minutes': 0})
+            continue
+        if a.dry_run:
+            summary_rows.append({**base_row, 'status': 'dry run', 'minutes': 0})
+            continue
+
+        out.mkdir(parents=True, exist_ok=True)
+        t0 = time.time()
+        try:
+            exit_code = run_and_log(cmd, out / 'run_log.txt')
+            status = 'ok' if exit_code == 0 else f'FAILED (exit {exit_code})'
+        except KeyboardInterrupt:
+            summary_rows.append({**base_row, 'status': 'interrupted',
+                                 'minutes': round((time.time() - t0) / 60, 1)})
+            print('\nInterrupted by user. Rerun this script to continue.')
+            break
+
+        minutes = round((time.time() - t0) / 60, 1)
+        summary_rows.append({**base_row, 'status': status, 'minutes': minutes})
+        print(f'\n--> {teacher} / {dataset} / {student}: {status} in {minutes} min  '
+              f'(log: {out / "run_log.txt"})', flush=True)
+
+    print()
+    print_separator()
+    print('SUMMARY')
+    print_separator('-')
+    if summary_rows:
+        tw = max(len(r['teacher']) for r in summary_rows)
+        dw = max(len(r['dataset']) for r in summary_rows)
+        sw = max(len(r['student']) for r in summary_rows)
+        for r in summary_rows:
+            print(f"  {r['teacher']:<{tw}}  {r['dataset']:<{dw}}  {r['student']:<{sw}}  "
+                  f"{r['ablation']:<13}  e{r['epochs']:<4}  {r['status']:<25}  "
+                  f"{r['minutes']:>7.1f} min")
+    print_separator('-')
+    print(f'Total time: {(time.time() - t_all) / 60:.1f} min')
+    print_separator()
+
+    summary_csv = Path(RESULTS_ROOT) / 'runs_summary.csv'
+    fieldnames = ['teacher', 'dataset', 'student', 'ablation', 'epochs', 'script',
+                  'folder', 'status', 'minutes']
+    with open(summary_csv, 'w', newline='', encoding='utf-8') as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w.writeheader()
+        w.writerows(summary_rows)
+    print(f'Summary saved to: {summary_csv}')
+
+    failed = [r for r in summary_rows if r['status'].startswith('FAILED')]
+    if failed:
+        print(f'\n{len(failed)} run(s) FAILED. Check run_log.txt in their folders. '
+              'Rerun this script to retry them.')
+        sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()
