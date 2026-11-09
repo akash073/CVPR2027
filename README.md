@@ -166,11 +166,108 @@ To reproduce the numerical results in the paper, ensure the configuration matche
 | Run skipped incorrectly | Inspect the generated summary and completion metadata; set `SKIP_FINISHED=False` only when rerunning is intentional. |
 | Different numerical results | Confirm epochs, seed list, checkpoints, data processing, and exact pretrained weights. |
 
-## 9. Citation
+
+## 9. CIFAR-100 held-out feasibility prediction (RQ2)
+
+`test_performance.py` is a separate **meta-classifier experiment**. It does not retrain the CLIP teachers or CNN students. Instead, it learns to classify whether each candidate student bottleneck width satisfies a specified accuracy-regret tolerance, using results already recorded in Pareto summary CSV files.
+
+### Train/test split
+
+| Split | Dataset | Role |
+| --- | --- | --- |
+| Train | Fashion-MNIST (`fmnist`) | Feasibility-classifier training |
+| Train | SVHN (`svhn`) | Feasibility-classifier training |
+| Train | CIFAR-10 (`cifar10`) | Feasibility-classifier training |
+| Train | Tiny ImageNet-200 (`tinyimagenet`) | Feasibility-classifier training, **only if corresponding CSV files are available** |
+| Test only | CIFAR-100 (`cifar100`) | Held-out evaluation; excluded from classifier training |
+
+This is a **single CIFAR-100 held-out split**, not a complete five-fold leave-one-dataset-out (LODO) experiment. Missing datasets are not silently generated; at least one non-CIFAR-100 training dataset and CIFAR-100 test data must be available. Both target classes must occur in the training records.
+
+### Requirements
+
+In addition to the dataset-training dependencies, the feasibility script requires `numpy`, `pandas`, `scikit-learn`, `joblib`, and `xgboost`.
+```bash
+pip install numpy pandas scikit-learn joblib xgboost
+```
+
+### Input files
+
+Place `test_performance.py` and the flattened Pareto summary CSV files in the **same working directory**. Files must follow the naming pattern:
+```text
+<teacher>_<dataset>_<student>_e<epochs>_pareto_summary.csv
+```
+
+For example:
+```text
+vitb32_fmnist_resnet18_e5_pareto_summary.csv
+vitb32_svhn_mobilenetv2_e5_pareto_summary.csv
+vitl14_cifar10_efficientnet_b0_e5_pareto_summary.csv
+vitb32_cifar100_resnet18_e5_pareto_summary.csv
+vitl14_tinyimagenet_mobilenetv2_e5_pareto_summary.csv
+```
+
+A suffix such as `(1)` before `.csv` is also accepted. Valid teacher and student identifiers are parsed from filenames. The script reads CSV files from `Path.cwd()` **without recursively searching the `results/` directory**. Therefore, summary files stored inside nested `results/` directories must first be collected in the working directory or the script must be adapted.
+
+Each CSV requires the columns `mode`, `bottleneck_kind`, `bottleneck_d`, and `test_accuracy_pct`. Teacher geometry is derived from optional `mle_selected`, `pca_selected`, and `erank_selected` flags. Rows are restricted to **linear bottlenecks** and repeated rows with the same objective and width are averaged.
+
+### Run
+
+From the directory containing the script and CSV files:
+```bash
+python train_test_cifar100_holdout.py
+```
+
+In a Jupyter notebook:
+```python
+%run train_test_cifar100_holdout.py
+```
+
+Default configuration in the script:
+```python
+DATA_DIR = Path.cwd()
+OUT_DIR = DATA_DIR / "saved_models" 
+DELTA = 1.0
+SEED = 42
+```
+
+The value `DELTA = 1.0` means a tolerance of **one percentage point**, not a relative 1% reduction in accuracy.
+
+### Learning target and models
+
+For each dataset, teacher, student, and distillation objective, the script sets the best observed accuracy across evaluated linear widths to `A_max`. For candidate width `d`, it calculates:
+```text
+regret_pp = A_max - accuracy_at_d
+feasible = 1 if regret_pp <= DELTA else 0
+```
+
+The model inputs include log-scaled candidate width, class count, teacher geometric dimension estimates and width ratios, teacher identity, student identity, and objective (`mode`). The script trains five classifiers with the hyperparameters defined in the Python source: Gradient Boosting, AdaBoost, Random Forest, RBF-SVM, and XGBoost. Each pipeline includes its own fitted preprocessing steps.
+
+Each classifier is **trained on the four non-CIFAR-100 datasets that are actually present**, saved with `joblib.dump()`, **reloaded with `joblib.load()`**, and then evaluated on the CIFAR-100 records. The script does **not** reuse previously trained `saved_models/*.joblib` models; doing so could invalidate the held-out split if those models were trained using CIFAR-100.
+
+### Saved outputs
+```text
+saved_models/
+    ├── gradient_boosting.joblib
+    ├── adaboost.joblib
+    ├── random_forest.joblib
+    ├── rbf_svm.joblib
+    ├── xgboost.joblib
+    ├── cifar100_evaluation.csv
+    ├── cifar100_predictions.csv
+    ├── input_audit.csv
+    └── training_metadata.json
+```
+
+`cifar100_evaluation.csv` contains the overall test accuracy, balanced accuracy, class-1 precision, recall and F1, train/test row counts, class prevalence, and saved model path for each classifier. `cifar100_predictions.csv` contains row-level predictions and feasibility probabilities when available. `input_audit.csv` records recognized source files and metadata. `training_metadata.json` records the held-out dataset, observed training datasets, features, file lists, seed, and tolerance. Confusion matrices are printed to the terminal.
+
+### Interpretation and limitations
+
+**Important:** The current code computes training and held-out feasibility labels from the CSV field `test_accuracy_pct`. Thus, the split prevents CIFAR-100 *rows* from being used to fit the classifiers, but the target definition is **retrospective and test-accuracy-derived**. It is not a leakage-free prospective bottleneck-selection evaluation. The reported scores measure prediction of retrospective feasibility labels, not demonstrated deployment-time width selection or reduced training-search cost. All measurements are conditional on the available width grid, accuracy measurements, and training settings used to create each source CSV. The script does not perform multi-seed uncertainty analysis, feature ablation, or a full LODO evaluation by itself.
+
+## 10. Citation
 
 If you use this repository, please cite the accompanying manuscript once its bibliographic details are available:
 
 > *How Many Dimensions Are Enough? Investigating Bottleneck Sufficiency in Vision-Language Knowledge Distillation.* Manuscript.
 
-<!-- Author list, venue status, publication year, and DOI are intentionally omitted because they have not been established from the supplied runner. -->
 
