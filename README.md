@@ -214,12 +214,12 @@ Each CSV requires the columns `mode`, `bottleneck_kind`, `bottleneck_d`, and `te
 
 From the directory containing the script and CSV files:
 ```bash
-python train_test_cifar100_holdout.py
+python test_performance.py
 ```
 
 In a Jupyter notebook:
 ```python
-%run train_test_cifar100_holdout.py
+%run test_performance.py
 ```
 
 Default configuration in the script:
