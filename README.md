@@ -252,13 +252,7 @@ saved_models/
     ├── random_forest.joblib
     ├── rbf_svm.joblib
     ├── xgboost.joblib
-    ├── cifar100_evaluation.csv
-    ├── cifar100_predictions.csv
-    ├── input_audit.csv
-    └── training_metadata.json
 ```
-
-`cifar100_evaluation.csv` contains the overall test accuracy, balanced accuracy, class-1 precision, recall and F1, train/test row counts, class prevalence, and saved model path for each classifier. `cifar100_predictions.csv` contains row-level predictions and feasibility probabilities when available. `input_audit.csv` records recognized source files and metadata. `training_metadata.json` records the held-out dataset, observed training datasets, features, file lists, seed, and tolerance. Confusion matrices are printed to the terminal.
 
 ### Interpretation and limitations
 
