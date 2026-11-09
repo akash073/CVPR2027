@@ -501,7 +501,6 @@ def main():
         raise ValueError(f"Training numeric features entirely missing: {empty_features}")
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    audit.to_csv(OUT_DIR / "input_audit.csv", index=False)
     results = []
     predictions = []
 
@@ -547,24 +546,6 @@ def main():
         print(f"{name}: accuracy={result['accuracy']:.3f} | balanced accuracy={result['balanced_accuracy']:.3f} | F1={result['f1_feasible']:.3f}")
         print(confusion_matrix(y_true, y_pred, labels=[0, 1]))
 
-    pd.DataFrame(results).to_csv(OUT_DIR / "cifar100_evaluation.csv", index=False)
-    pd.concat(predictions, ignore_index=True).to_csv(OUT_DIR / "cifar100_predictions.csv", index=False)
-    metadata = {
-        "held_out_dataset": "cifar100",
-        "training_datasets": sorted(train["dataset"].unique().tolist()),
-        "delta_pp": DELTA,
-        "features": FEATURES,
-        "training_rows": len(train),
-        "test_rows": len(test),
-        "train_files": sorted(train["source_file"].unique().tolist()),
-        "test_files": sorted(test["source_file"].unique().tolist()),
-        "random_seed": SEED,
-        "sklearn_version": sklearn.__version__,
-        "target_note": "Feasibility labels currently use test_accuracy_pct from the CSV files. This is retrospective evaluation, not a leakage-free prospective validation of width selection.",
-    }
-    with (OUT_DIR / "training_metadata.json").open("w", encoding="utf-8") as f:
-        json.dump(metadata, f, indent=2)
-    print(f"\nModels and evaluation saved in: {OUT_DIR}")
 
 
 if __name__ == "__main__":
