@@ -486,6 +486,49 @@ def make_pipeline(model_name, seed):
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, confusion_matrix, precision_recall_fscore_support
 
 
+def load_or_train_model(name, stem, train):
+    path = OUT_DIR / f"{stem}.joblib"
+
+    if path.is_file():
+        print(f"Loading existing model: {path}")
+        model = joblib.load(path)  # Only load joblib files from a trusted source.
+
+        if isinstance(model, dict) and "model" in model:
+            model = model["model"]
+
+        if not hasattr(model, "predict"):
+            raise TypeError(f"{path}: saved object is not a predictor")
+
+        saved_features = getattr(model, "feature_names_in_", None)
+        if saved_features is not None and list(saved_features) != FEATURES:
+            raise ValueError(
+                f"{path}: expected input features {FEATURES}, "
+                f"but saved model uses {list(saved_features)}"
+            )
+
+        try:
+            model.predict(train[FEATURES].iloc[:1])
+        except Exception as exc:
+            raise ValueError(
+                f"Existing model {path} is incompatible with the current data. "
+                "Check the model rather than silently retraining it."
+            ) from exc
+
+        print(
+            "WARNING: Loading a saved model does not verify which datasets, "
+            "tolerance, or labels it was trained on. Confirm that CIFAR-100 "
+            "was excluded from training before claiming held-out results."
+        )
+        return model, path, "loaded"
+
+    print(f"Model not found; training {name}...")
+    model = make_pipeline(name, SEED)
+    model.fit(train[FEATURES], train["feasible"].astype(int))
+    joblib.dump(model, path)
+    print(f"Trained and saved: {path}")
+    return model, path, "trained"
+
+
 def main():
     data, audit = load_data(DATA_DIR, DELTA)
     train = data.loc[data["dataset"] != "cifar100"].copy()
@@ -511,11 +554,7 @@ def main():
     print(f"Tolerance: {DELTA} percentage points")
 
     for name, stem in MODEL_NAMES.items():
-        model = make_pipeline(name, SEED)
-        model.fit(train[FEATURES], train["feasible"].astype(int))
-        path = OUT_DIR / f"{stem}.joblib"
-        joblib.dump(model, path)
-        loaded = joblib.load(path)
+        loaded, path, status = load_or_train_model(name, stem, train)
         y_true = test["feasible"].astype(int).to_numpy()
         y_pred = loaded.predict(test[FEATURES]).astype(int)
         precision, recall, f1, support = precision_recall_fscore_support(
@@ -523,6 +562,7 @@ def main():
         )
         result = {
             "classifier": name,
+            "model_status": status,
             "train_rows": len(train),
             "test_rows": len(test),
             "accuracy": accuracy_score(y_true, y_pred),
