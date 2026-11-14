@@ -54,7 +54,7 @@ The runner has no command-line switches for changing the model matrix; edit the 
 
 | Item | Active setting |
 | --- | --- |
-| Teacher | `vitl14` → OpenCLIP `ViT-L-14`, pretrained `laion2b_s32b_b82k` (768-dimensional embedding) |
+| Teacher | `vitb32` (512-dimensional embedding) and `vitl14` (768-dimensional embedding) |
 | Datasets | Fashion-MNIST, SVHN, CIFAR-10, CIFAR-100, Tiny ImageNet-200|
 | Students | ResNet-18, MobileNetV2, EfficientNet-B0 |
 | Objectives | `labels`, `feat`, `rkd`, `crd`, `dkd`, `vl2lite`, `sskd`, `clipkd` |
