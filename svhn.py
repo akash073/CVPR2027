@@ -21,18 +21,18 @@ from sklearn.neighbors import NearestNeighbors
 from torch.utils.data import DataLoader, Dataset, Subset
 from torchvision import datasets, models, transforms
 
-# torchvision maps SVHN's original label 10 to 0, so index == digit
+
 SVHN_CLASSES = [str(i) for i in range(10)]
 PROMPT_NAMES = SVHN_CLASSES
 PROMPT_TEMPLATES = ['a photo of the number: "{}".', 'a photo of the house number "{}".',
                     'a street view photo of the digit {}.', 'a blurry photo of the number {}.']
 NUM_CLASSES = 10
-# Mirrored digits can change identity (2/5, 6/9 in some fonts): no horizontal flip
+
 AUG_HFLIP = False
 BACKBONE_DIM = {'resnet18': 512, 'resnet50': 2048, 'mobilenet_v2': 1280,
                 'mobilenet_v3_large': 960, 'efficientnet_b0': 1280, 'convnext_tiny': 768}
 
-# All valid distillation modes
+
 VALID_MODES = {'labels', 'feat', 'rkd', 'crd', 'dkd', 'vl2lite', 'sskd', 'clipkd'}
 
 
@@ -63,14 +63,13 @@ def build_backbone(name, pretrained=True):
     return net
 
 
-# R2: only per-run training settings; seeds/dims/modes are encoded in tags
 SIGNATURE_FIELDS = ['teacher', 'pretrained', 'student', 'no_pretrained_student', 'use_extra',
                     'max_train', 'max_test', 'data_seed', 'epochs',
                     'batch_size', 'lr', 'head_lr_mult', 'temperature', 'lam_cls_start', 'lam_cls_end',
                     'kd_logit_scale', 'w_mse', 'w_cos', 'w_consistency',
                     'id_samples', 'id_ks', 'optimizer', 'weight_decay',
                     'label_smoothing', 'no_augment',
-                    # S1: new fields
+                    
                     'crd_temperature', 'dkd_alpha', 'dkd_beta', 'pca_variance_threshold',
                     'sskd_temperature', 'sskd_w_kd', 'sskd_w_ss',
                     'clipkd_w_fd', 'clipkd_w_icl']
@@ -140,34 +139,34 @@ def make_parser() -> argparse.ArgumentParser:
     p.add_argument('--worker-stall-hours', type=float, default=0.0,
                    help='M1: terminate a live worker that sends nothing for this long '
                         '(0 disables; set above the longest single run)')
-    # VL2Lite-style
+    
     p.add_argument('--temperature', type=float, default=2.0)
     p.add_argument('--lam-cls-start', type=float, default=0.50)
     p.add_argument('--lam-cls-end', type=float, default=0.80)
     p.add_argument('--kd-logit-scale', type=float, default=None)
-    # feat mode
+    
     p.add_argument('--w-mse', type=float, default=1.0)
     p.add_argument('--w-cos', type=float, default=2.0)
     p.add_argument('--w-consistency', type=float, default=0.0,
                    help='Optional small-shift consistency for KD modes (flips change digit '
                         'identity, so a translation is used). Off by default.')
-    # D2: CRD temperature (S1)
+    
     p.add_argument('--crd-temperature', type=float, default=0.07,
                    help='D2: contrastive temperature for CRD loss')
-    # D3: DKD weights (S1)
+    
     p.add_argument('--dkd-alpha', type=float, default=1.0,
                    help='D3: weight for TCKD (target-class) term in DKD')
     p.add_argument('--dkd-beta', type=float, default=1.0,
                    help='D3: weight for NCKD (non-target-class) term in DKD')
-    # B1: PCA variance threshold (S1)
-    # N1: SSKD-style (Xu et al., ECCV 2020)
+    
+    
     p.add_argument('--sskd-temperature', type=float, default=0.5,
                    help='N1: temperature of the rotated-vs-original similarity distributions')
     p.add_argument('--sskd-w-kd', type=float, default=1.0,
                    help='N1: weight of logit KD from CLIP zero-shot logits on original images')
     p.add_argument('--sskd-w-ss', type=float, default=1.0,
                    help='N1: weight of the self-supervision similarity KL')
-    # N2: CLIP-KD-style (Yang et al., CVPR 2024): FD + ICL
+    
     p.add_argument('--clipkd-w-fd', type=float, default=1.0,
                    help='N2: weight of feature distillation (MSE to CLIP image embedding)')
     p.add_argument('--clipkd-w-icl', type=float, default=1.0,
@@ -177,7 +176,7 @@ def make_parser() -> argparse.ArgumentParser:
                    help='M2: samples per class used for the manifold-geometry estimate')
     p.add_argument('--pca-variance-threshold', type=float, default=0.95,
                    help='B1: cumulative variance threshold for PCA dimension selection')
-    # Analysis / benchmark
+    
     p.add_argument('--accuracy-tolerance', type=float, default=1.0)
     p.add_argument('--knee-gain', type=float, default=2.0)
     p.add_argument('--benchmark', choices=['after', 'inline', 'none'], default='after')
@@ -186,7 +185,6 @@ def make_parser() -> argparse.ArgumentParser:
     return p
 
 
-# ── Data ──────────────────────────────────────────────────────────────────────
 class SVHNView(Dataset):
     def __init__(self, base, indices, tf):
         self.base, self.indices, self.tf = base, np.asarray(indices, dtype=np.int64), tf
@@ -268,7 +266,6 @@ def labels_of(ds):
     return np.asarray(ds.labels)
 
 
-# ── Dimensionality estimators ──────────────────────────────────────────────────
 def mle_dimension(embeddings, ks, n: int, seed: int) -> pd.DataFrame:
     """Levina-Bickel (2004) pooled MLE, Eq. 7, on L2-normalised embeddings."""
     rng = np.random.default_rng(seed)
@@ -330,7 +327,6 @@ def effective_rank_dimension(embeddings, normalize=True) -> int:
     return max(2, int(round(float(np.exp(-np.sum(p * np.log(p)))))))
 
 
-# B3: fixed widths are independent of MLE — do not use mle_d to select them.
 FIXED_WIDTHS_INDEPENDENT = [16, 32, 64]
 
 
@@ -369,7 +365,7 @@ def manifold_geometry(embeddings, labels, max_per_class=200, seed=0):
         xc = x[idx]
         mu = xc.mean(axis=0)
         s = np.linalg.svd(xc - mu, compute_uv=False)
-        lam = s ** 2 / (len(idx) - 1)                      # within-class covariance spectrum
+        lam = s ** 2 / (len(idx) - 1)                      
         radius = float(np.sqrt(lam.sum()) / max(np.linalg.norm(mu), 1e-12))
         dim = float(lam.sum() ** 2 / max((lam ** 2).sum(), 1e-24))
         alpha = float(min(2.0, (1.0 + radius ** -2) / dim))
@@ -391,7 +387,7 @@ def manifold_geometry(embeddings, labels, max_per_class=200, seed=0):
         'dimension_mean': float(np.mean([r['dimension'] for r in rows])),
         'capacity_alpha_M': alpha_m,
         'center_correlation': float(np.abs(cos[off]).mean()),
-        'capacity_width': int(np.ceil(n_classes / alpha_m)),   # N = P / alpha_M
+        'capacity_width': int(np.ceil(n_classes / alpha_m)),   
         'per_class': rows,
     }
 
@@ -402,11 +398,6 @@ def fixed_widths_for(full_d: int) -> list:
     return [w for w in FIXED_WIDTHS_INDEPENDENT if w <= full_d]
 
 
-# ── Safe file writes (W5) ─────────────────────────────────────────────────────
-# On Windows a file another process holds open (OneDrive / Dropbox sync, antivirus,
-# Explorer preview) cannot be written: "open file failed with error code: 32".
-# Every write goes to a unique temporary file first, which is then swapped into place
-# with os.replace. Both steps retry with exponential backoff.
 IO_RETRIES = 8
 
 
@@ -475,7 +466,6 @@ def warn_if_synced_folder(path):
             return
 
 
-# ── Teacher cache ─────────────────────────────────────────────────────────────
 @torch.no_grad()
 def build_teacher_cache(teacher, dataset, device, batch_size, workers, cache_path, save_every=100):
     if cache_path.exists():
@@ -516,7 +506,7 @@ def build_teacher_cache(teacher, dataset, device, batch_size, workers, cache_pat
         if b % save_every == 0 or b == n_batches:
             chunks = [torch.cat(chunks)]
             n_done = chunks[0].shape[0]
-            try:                    # W5: progress snapshot only; never fatal
+            try:                    
                 safe_save({'features': chunks[0], 'n_total': n_total}, partial)
             except RuntimeError as e:
                 print(f'  WARNING: partial teacher cache not saved ({e}); continuing.', flush=True)
@@ -575,7 +565,6 @@ def zero_shot_accuracy(feats, text, labels):
     return 100.0 * float((pred.numpy() == np.asarray(labels)).mean())
 
 
-# ── Models ────────────────────────────────────────────────────────────────────
 def run_tag(mode, d, seed, kind='linear'):
     """G1: identity (no-bottleneck) runs get an 'id' suffix so they never collide
     with the full-width Linear projection at the same d."""
@@ -626,46 +615,40 @@ class Condense(nn.Module):
         return self.net(x)
 
 
-# ── Losses ────────────────────────────────────────────────────────────────────
 def relational_kd(z, t_img, w_dist=25.0, w_angle=50.0):
     """D1/RKD: distance + angle relational losses.
     Reference: Park et al., CVPR 2019 (Eq. 3 + Eq. 4)."""
     zs = F.normalize(z.float(), dim=-1)
     ts = F.normalize(t_img.float(), dim=-1)
     N = zs.shape[0]
-    # No pairwise relationships exist for a singleton minibatch.
-    # Return a differentiable zero so backpropagation remains valid.
+    
+    
     if N < 2:
         return z.float().sum() * 0.0
     off = ~torch.eye(N, dtype=torch.bool, device=zs.device)
 
-    # Distance loss (Eq. 3)
+    
     d_s = torch.cdist(zs, zs)
     d_t = torch.cdist(ts, ts)
     d_s = d_s / d_s[off].mean().clamp_min(1e-6)
     d_t = d_t / d_t[off].mean().clamp_min(1e-6)
     loss_dist = F.smooth_l1_loss(d_s[off], d_t[off])
 
-    # Angle loss (Eq. 4) — triplet cosine angle matching
-    # For each anchor i, compute cosine of angle at i for all pairs (j, k)
-    # Using the identity: cos(angle_ijk) = (e_ij . e_ik) where e = unit diff vector
-    if N >= 3 and w_angle > 0:      # skip the N x N x N tensor when the angle term is off
-        # student and teacher difference vectors: (N, N, D)
-        zs_e = zs.unsqueeze(1) - zs.unsqueeze(0)   # (N, N, D)
+
+    if N >= 3 and w_angle > 0:      
+        
+        zs_e = zs.unsqueeze(1) - zs.unsqueeze(0)   
         ts_e = ts.unsqueeze(1) - ts.unsqueeze(0)
         zs_e = F.normalize(zs_e, dim=-1, eps=1e-8)
         ts_e = F.normalize(ts_e, dim=-1, eps=1e-8)
-        # Pairwise angle similarity via bmm: (N,N,N) — memory-efficient
-        # angle_s[i,j,k] = dot(e_ij, e_ik) — no N³D intermediate tensor
-        angle_s = torch.bmm(zs_e, zs_e.transpose(1, 2))  # (N, N, N)
+        
+        
+        angle_s = torch.bmm(zs_e, zs_e.transpose(1, 2))  
         angle_t = torch.bmm(ts_e, ts_e.transpose(1, 2))
-        # angle_s[i, j, k] is the angle at anchor i between rays i->j and i->k.
-        # Keep only proper triplets with i, j, k pairwise distinct: if j == i or
-        # k == i the ray e_ii is a zero vector (cosine 0 for both nets), and
-        # j == k gives cosine 1 for both. Those terms carry no information and
-        # only dilute the mean.
+
+
         ne = ~torch.eye(N, dtype=torch.bool, device=zs.device)
-        mask3 = ne.unsqueeze(2) & ne.unsqueeze(1) & ne.unsqueeze(0)  # i!=j, i!=k, j!=k
+        mask3 = ne.unsqueeze(2) & ne.unsqueeze(1) & ne.unsqueeze(0)  
         loss_angle = F.smooth_l1_loss(angle_s[mask3], angle_t[mask3])
     else:
         loss_angle = torch.tensor(0.0, device=zs.device)
@@ -683,7 +666,7 @@ def crd_loss(z_proj, t_img, temperature=0.07):
     z_n = F.normalize(z_proj.float(), dim=-1)
     t_n = F.normalize(t_img.float(), dim=-1)
     N = z_n.shape[0]
-    logits = z_n @ t_n.T / temperature          # (N, N)
+    logits = z_n @ t_n.T / temperature          
     labels = torch.arange(N, device=z_n.device)
     loss_s2t = F.cross_entropy(logits, labels)
     loss_t2s = F.cross_entropy(logits.T, labels)
@@ -695,15 +678,15 @@ def dkd_loss(student_logits, teacher_logits, targets, temperature=4.0, alpha=1.0
     Uses ground-truth targets (not teacher argmax) and properly scaled teacher logits.
     Reference: Zhao et al., CVPR 2022."""
     s_soft = F.softmax(student_logits / temperature, dim=1)
-    t_soft = F.softmax(teacher_logits / temperature, dim=1)   # already scaled
-    gt = targets.long()                                        # ground-truth labels
+    t_soft = F.softmax(teacher_logits / temperature, dim=1)   
+    gt = targets.long()                                        
 
-    # TCKD: binary distribution over correct class vs. rest
+    
     s_t = s_soft.gather(1, gt.unsqueeze(1))
     t_t = t_soft.gather(1, gt.unsqueeze(1))
     tckd = F.binary_cross_entropy(s_t.clamp(1e-7, 1 - 1e-7), t_t.clamp(1e-7, 1 - 1e-7))
 
-    # NCKD: distribution over non-target classes only
+    
     mask = torch.ones_like(s_soft, dtype=torch.bool)
     mask.scatter_(1, gt.unsqueeze(1), False)
     s_nt = s_soft[mask].view(s_soft.shape[0], -1)
@@ -712,7 +695,7 @@ def dkd_loss(student_logits, teacher_logits, targets, temperature=4.0, alpha=1.0
     t_nt = t_nt / t_nt.sum(dim=1, keepdim=True).clamp_min(1e-7)
     nckd = F.kl_div(s_nt.log().clamp_min(-100), t_nt, reduction='batchmean')
 
-    # T² scaling aligns with original DKD formulation (Zhao et al., CVPR 2022)
+    
     return (temperature ** 2) * (alpha * tckd + beta * nckd)
 
 
@@ -778,7 +761,6 @@ def shift_consistency(student, x, z, max_shift=8):
             - F.normalize(z_aug.float(), dim=-1)).pow(2).sum(1).mean()
 
 
-# ── Evaluation / benchmark ─────────────────────────────────────────────────────
 @torch.no_grad()
 def evaluate(model, loader, device):
     model.eval()
@@ -900,7 +882,6 @@ def benchmark_saved(results, out, device, a):
     return rows
 
 
-# ── Pareto / analysis ─────────────────────────────────────────────────────────
 def pareto_mask(frame, acc_col='test_accuracy_pct'):
     """Nondominance on (test accuracy, energy, latency) within the evaluated set."""
     vals = frame[[acc_col, 'energy_mJ', 'latency_ms']].to_numpy(float)
@@ -928,7 +909,7 @@ def pareto_freq_per_seed(frame):
     return {k: round(v / len(seeds), 3) for k, v in freq.items()}
 
 
-SELECT_COL = 'test_accuracy_pct'    # NV: no validation split; analysis uses test accuracy
+SELECT_COL = 'test_accuracy_pct'    
 
 
 def knee_analysis(sub, knee_gain, col=SELECT_COL):
@@ -958,13 +939,12 @@ def _acc_at(sub, d, col=SELECT_COL):
     return float(row[col].iloc[0]) if not row.empty else float('nan')
 
 
-# ── Dimension parsing ──────────────────────────────────────────────────────────
 def parse_dims(spec, mle_d, pca_d, erank_d, full_d, fixed_widths=None, cap_d=None):
     """B5: parse --dims tokens including 'pca' and 'erank'.
     Always injects fixed_widths into the grid so _acc_at never returns NaN
     for the independent fixed-width baselines."""
     dims = []
-    # Always include independent fixed widths in the grid
+    
     for fw in (fixed_widths or []):
         fw = max(2, min(full_d, fw))
         if fw not in dims:
@@ -979,7 +959,7 @@ def parse_dims(spec, mle_d, pca_d, erank_d, full_d, fixed_widths=None, cap_d=Non
             d = pca_d
         elif tok == 'erank':
             d = erank_d
-        elif tok == 'cap':                  # M2: manifold-capacity width
+        elif tok == 'cap':                  
             if cap_d is None:
                 continue
             d = cap_d
@@ -1004,7 +984,6 @@ def check_resume_signature(out, a, run_signature):
     safe_write_text(sigfile, run_signature)
 
 
-# ── Training ───────────────────────────────────────────────────────────────────
 def train_one(mode, d_b, seed, kind, teacher_feats, teacher_txt, ds_train, ds_test,
               vlm_dim, device, a, teacher_rot=None):
     """Trains one student and scores it on the test set at the final epoch."""
@@ -1012,13 +991,13 @@ def train_one(mode, d_b, seed, kind, teacher_feats, teacher_txt, ds_train, ds_te
     tag = run_tag(mode, d_b, seed, kind)
     student = StudentMLE(a.student, NUM_CLASSES, d_b,
                          pretrained=not a.no_pretrained_student, kind=kind).to(device)
-    cond_text = Condense(vlm_dim, d_b).to(device)   # vl2lite only
-    align = nn.Linear(d_b, vlm_dim).to(device)       # feat only
-    crd_align = nn.Linear(d_b, vlm_dim).to(device)   # crd only: projects to teacher dim
-    clip_align = nn.Linear(d_b, vlm_dim).to(device)  # clipkd only: projects to CLIP space
+    cond_text = Condense(vlm_dim, d_b).to(device)   
+    align = nn.Linear(d_b, vlm_dim).to(device)       
+    crd_align = nn.Linear(d_b, vlm_dim).to(device)   
+    clip_align = nn.Linear(d_b, vlm_dim).to(device)  
     ss_dim = 128
     ss_head = nn.Sequential(nn.Linear(d_b, max(d_b, ss_dim)), nn.ReLU(inplace=True),
-                            nn.Linear(max(d_b, ss_dim), ss_dim)).to(device)  # sskd only
+                            nn.Linear(max(d_b, ss_dim), ss_dim)).to(device)  
     if mode == 'sskd' and teacher_rot is None:
         raise ValueError('mode sskd needs rotated teacher features (teacher_rot)')
 
@@ -1045,9 +1024,7 @@ def train_one(mode, d_b, seed, kind, teacher_feats, teacher_txt, ds_train, ds_te
     sched = torch.optim.lr_scheduler.LambdaLR(
         opt, lambda e: 0.01 + 0.99 * 0.5 * (1 + math.cos(math.pi * e / a.epochs)))
 
-    # F5: every training batch has the same size, so batch-dependent losses (RKD pairs,
-    # CRD negatives) see a constant number of samples. Disabled only if the training
-    # set is smaller than one batch.
+
     train_loader = DataLoader(ds_train, batch_size=a.batch_size, shuffle=True,
                               num_workers=a.num_workers, pin_memory=device.type == 'cuda',
                               persistent_workers=a.num_workers > 0,
@@ -1073,7 +1050,7 @@ def train_one(mode, d_b, seed, kind, teacher_feats, teacher_txt, ds_train, ds_te
             z, logits = student(xs, return_bottleneck=True)
             l_cls = F.cross_entropy(logits, ys, label_smoothing=a.label_smoothing)
 
-            # ── Distillation objective (D1-D3 + existing) ──────────────────
+            
             if mode == 'labels':
                 loss, k1, k2 = l_cls, 0.0, 0.0
 
@@ -1083,20 +1060,20 @@ def train_one(mode, d_b, seed, kind, teacher_feats, teacher_txt, ds_train, ds_te
                 k1, k2 = mse.item(), cos.item()
 
             elif mode == 'rkd':
-                # D1: geometry only — no linguistic loss
+                
                 l_rkd = relational_kd(z, t_img)
                 loss = lam_cls * l_cls + (1.0 - lam_cls) * l_rkd
                 k1, k2 = l_rkd.item(), 0.0
 
             elif mode == 'crd':
-                # D2: project student to teacher dim first (fixes shape mismatch)
+                
                 z_proj = crd_align(z)
                 l_crd = crd_loss(z_proj, t_img, temperature=a.crd_temperature)
                 loss = lam_cls * l_cls + (1.0 - lam_cls) * l_crd
                 k1, k2 = l_crd.item(), 0.0
 
             elif mode == 'dkd':
-                # D3: decoupled KD — use scaled teacher logits + ground-truth targets
+                
                 teacher_logits = clip_teacher_logits(t_img, t_txt, a.kd_logit_scale_used)
                 l_dkd = dkd_loss(student_logits=logits,
                                  teacher_logits=teacher_logits,
@@ -1108,9 +1085,8 @@ def train_one(mode, d_b, seed, kind, teacher_feats, teacher_txt, ds_train, ds_te
                 k1, k2 = l_dkd.item(), 0.0
 
             elif mode == 'sskd':
-                # N1: one random rotation (90/180/270) per sample; teacher features of the
-                # same rotation come from the cache. Logit KD from CLIP zero-shot logits on
-                # the original image + similarity KL between rotated and original samples.
+
+
                 ks = torch.randint(1, 4, (xs.size(0),))
                 x_rot = torch.stack([torch.rot90(x, int(k), dims=(-2, -1))
                                      for x, k in zip(xs, ks)])
@@ -1123,14 +1099,14 @@ def train_one(mode, d_b, seed, kind, teacher_feats, teacher_txt, ds_train, ds_te
                 k1, k2 = l_kd.item(), l_ss.item()
 
             elif mode == 'clipkd':
-                # N2: FD + ICL against the frozen CLIP teacher
+                
                 fd, icl = clipkd_losses(clip_align(z), t_img, t_txt, ys, a.kd_logit_scale_used)
                 loss = lam_cls * l_cls + (1.0 - lam_cls) * (a.clipkd_w_fd * fd + a.clipkd_w_icl * icl)
                 k1, k2 = fd.item(), icl.item()
 
-            else:  # vl2lite
-                # F1: VL2Lite-style keeps its original distance-only relational term
-                # (weight 1, no angle). The full RKD weights (25 / 50) belong to mode 'rkd'.
+            else:  
+                
+                
                 l_vis = relational_kd(z, t_img, w_dist=1.0, w_angle=0.0)
                 l_txt = linguistic_kd(z, t_img, t_txt, cond_text, a.kd_logit_scale_used, a.temperature)
                 loss = lam_cls * l_cls + lam_kd * l_vis + lam_kd * l_txt
@@ -1291,7 +1267,7 @@ def analyze_and_write(results, info, a, out, prefix=''):
     complete, missing_tags, min_seeds = info['complete'], info['missing_tags'], info['min_seeds']
     cap_d, mgeo = info.get('cap_d'), info.get('manifold_geometry')
 
-    # ── Summary on test accuracy (no validation split) ─────────────────────────
+    
     frame = pd.DataFrame(results)
     expected = len(seeds)
     summary = frame.groupby(['mode', 'bottleneck_kind', 'bottleneck_d']).agg(
@@ -1306,7 +1282,7 @@ def analyze_and_write(results, info, a, out, prefix=''):
         n_seeds=('seed', 'count')).reset_index()
 
     lin = summary['bottleneck_kind'].eq('linear')
-    all_seeds = summary['n_seeds'] >= min_seeds         # F4/A1: groups with enough seeds
+    all_seeds = summary['n_seeds'] >= min_seeds         
     excluded = summary.loc[~all_seeds, ['mode', 'bottleneck_kind', 'bottleneck_d', 'n_seeds']]
     summary['mle_selected'] = lin & summary['bottleneck_d'].eq(mle_d)
     summary['pca_selected'] = lin & summary['bottleneck_d'].eq(pca_d)
@@ -1334,7 +1310,7 @@ def analyze_and_write(results, info, a, out, prefix=''):
         if r['n_seeds'] == expected else float('nan')
         for _, r in summary.iterrows()]
 
-    # ── Selection analysis on test accuracy (NV: post-hoc, no held-out split) ──
+    
     selection = {}
     for m in modes:
         sub = summary[(summary['mode'] == m) & lin & all_seeds]
@@ -1343,8 +1319,8 @@ def analyze_and_write(results, info, a, out, prefix=''):
         best = float(sub[SELECT_COL].max())
         gains, knee = knee_analysis(sub, a.knee_gain)
         d_eps = d_eps_at(sub, a.accuracy_tolerance)
-        oracle_d = int(sub.loc[sub[SELECT_COL].idxmax(), 'bottleneck_d'])   # max test accuracy
-        oracle_1pp_d = d_eps_at(sub, 1.0)                                   # smallest d within 1 pp
+        oracle_d = int(sub.loc[sub[SELECT_COL].idxmax(), 'bottleneck_d'])   
+        oracle_1pp_d = d_eps_at(sub, 1.0)                                   
 
         def strategy(d):
             row = sub[sub['bottleneck_d'] == d]
@@ -1353,12 +1329,12 @@ def analyze_and_write(results, info, a, out, prefix=''):
                     'test_accuracy_std': float(row['test_accuracy_std'].iloc[0]) if not row.empty
                                          else float('nan'),
                     'gap_to_best_pp': best - acc,
-                    'd_minus_oracle_1pp': int(d) - oracle_1pp_d,      # >0 too wide, <0 too narrow
+                    'd_minus_oracle_1pp': int(d) - oracle_1pp_d,      
                     'within_1pp_of_best': bool(acc >= best - 1.0)}
 
         picks = {f'fixed_{fw}': fw for fw in fixed_widths}
         if cap_d:
-            picks['cap'] = cap_d                                              # M2
+            picks['cap'] = cap_d                                              
         picks.update({'mle': mle_d, 'pca': pca_d, 'erank': erank_d,
                       'oracle_max': oracle_d, 'oracle_1pp': oracle_1pp_d})
         selection[m] = {'strategies': {k: strategy(d) for k, d in picks.items()},
@@ -1369,7 +1345,7 @@ def analyze_and_write(results, info, a, out, prefix=''):
                         'knee_d': knee, 'knee_gain_threshold_pp': a.knee_gain,
                         'gain_per_doubling': gains}
         idr = summary[(summary['mode'] == m) & summary['bottleneck_kind'].eq('identity') & all_seeds]
-        if not idr.empty:                                                     # G1
+        if not idr.empty:                                                     
             id_acc = float(idr[SELECT_COL].iloc[0])
             selection[m]['identity_no_bottleneck'] = {
                 'd': full_d, 'test_accuracy_pct': id_acc,
@@ -1465,7 +1441,7 @@ def analyze_only(a, seeds, modes, out):
     mle_d, pca_d, erank_d = int(est['mle_d']), int(est['pca_d']), int(est['erank_d'])
     raw = est.get('ablation_raw_features', {})
     fixed_widths = est.get('fixed_widths') or fixed_widths_for(full_d)
-    cap_d = est.get('cap_d')                                                  # M2
+    cap_d = est.get('cap_d')                                                  
     dims = parse_dims(a.dims, mle_d, pca_d, erank_d, full_d, fixed_widths, cap_d)
 
     frame = pd.read_csv(out / 'results_per_seed.csv')
@@ -1521,7 +1497,6 @@ def code_fingerprint():
     return hashlib.sha256(''.join(inspect.getsource(f) for f in parts).encode()).hexdigest()[:12]
 
 
-# ── Main ───────────────────────────────────────────────────────────────────────
 def run():
     a = make_parser().parse_args()
     seeds = [int(s) for s in a.seeds.split(',')]
@@ -1534,15 +1509,14 @@ def run():
     if a.epochs < 1 or a.benchmark_trials < 1 or a.benchmark_repeats < 1:
         raise ValueError('epochs and benchmark trials/repeats must be positive')
     out = Path(a.out)
-    if a.analyze_only:                                                        # A1
+    if a.analyze_only:                                                        
         analyze_only(a, seeds, modes, out)
         return
     gpu_ids = [int(g) for g in a.gpus.split(',')]
     out.mkdir(parents=True, exist_ok=True)
-    warn_if_synced_folder(out)                                                # W5
+    warn_if_synced_folder(out)                                                
 
-    # F2: the signature covers the training code, not only the CLI settings, so
-    # --resume refuses to mix runs trained under different loss definitions.
+
     a.code_fingerprint = code_fingerprint()
     a.run_signature = hashlib.sha256(json.dumps(
         {**{k: getattr(a, k) for k in SIGNATURE_FIELDS}, 'code': a.code_fingerprint},
@@ -1564,7 +1538,7 @@ def run():
     tokenizer = open_clip.get_tokenizer(a.teacher)
     teacher.eval(); teacher.requires_grad_(False)
 
-    # NV: no validation split; students train on the full (optionally capped) training pool
+    
     train_ix = balanced_indices(labels_of(train_base), a.max_train, a.data_seed)
     test_ix = balanced_indices(labels_of(test_base), a.max_test, a.data_seed)
     ds_train = SVHNView(train_base, train_ix, student_transform(train=True, augment=not a.no_augment))
@@ -1582,12 +1556,12 @@ def run():
                                        device, a.extract_batch_size, a.num_workers,
                                        cache_for(test_ix, 'test'), a.extract_save_every)
     teacher_rot = None
-    if 'sskd' in modes:                                                       # N1
+    if 'sskd' in modes:                                                       
         teacher_rot = torch.stack([
             build_teacher_cache(teacher, SVHNRotView(train_base, train_ix, teacher_tf, k),
                                 device, a.extract_batch_size, a.num_workers,
                                 cache_for(train_ix, f'train_rot{90 * k}'), a.extract_save_every)
-            for k in (1, 2, 3)])                                              # (3, N, D)
+            for k in (1, 2, 3)])                                              
     teacher_txt = encode_class_prompts(teacher, tokenizer, device)
     clip_scale = float(teacher.logit_scale.exp().item())
     a.kd_logit_scale_used = clip_scale if a.kd_logit_scale is None else float(a.kd_logit_scale)
@@ -1602,9 +1576,8 @@ def run():
           'test_zero_shot_pct': zero_shot_accuracy(teacher_test, teacher_txt, y_test),
           'clip_logit_scale': clip_scale, 'kd_logit_scale_used': a.kd_logit_scale_used,
           'templates': PROMPT_TEMPLATES, 'class_prompt_names': PROMPT_NAMES}
-    # N3: CLIP teacher references. Zero-shot uses only class prompts; the linear probe
-    # trains a logistic regression on frozen CLIP features of the training set. Neither
-    # is guaranteed to be an upper bound on a fine-tuned CNN student.
+
+
     from sklearn.linear_model import LogisticRegression
     nrm = lambda f: F.normalize(f.float(), dim=-1).numpy()
     probe = LogisticRegression(max_iter=2000, C=1.0).fit(nrm(teacher_feats), y_train)
@@ -1618,22 +1591,21 @@ def run():
           f"KD scale {a.kd_logit_scale_used:.1f}, zero-shot test {zs['test_zero_shot_pct']:.2f}%, "
           f"linear probe test {zs['test_linear_probe_pct']:.2f}%")
 
-    # ── Dimensionality estimation (B1, B2, MLE) ───────────────────────────────
+    
     id_table = mle_dimension(teacher_feats, a.id_ks, a.id_samples, a.data_seed)
     safe_to_csv(id_table, out / 'levina_bickel_mle.csv', index=False)
     mle_float = float(id_table['mle_id'].median())
     mle_d = max(2, min(vlm_dim, math.ceil(mle_float)))
     stab = mle_stability(teacher_feats, a.id_ks, a.id_samples, a.data_seed, a.id_repeats)
 
-    # P1: primary PCA / effective rank on the same L2-normalised space as the MLE;
-    # raw-feature values are recorded as an ablation.
+
     pca_d = max(2, min(vlm_dim, pca_dimension(teacher_feats, a.pca_variance_threshold)))
     erank_d = max(2, min(vlm_dim, effective_rank_dimension(teacher_feats)))
     pca_d_raw = max(2, min(vlm_dim, pca_dimension(teacher_feats, a.pca_variance_threshold,
                                                   normalize=False)))
     erank_d_raw = max(2, min(vlm_dim, effective_rank_dimension(teacher_feats, normalize=False)))
-    fixed_widths = fixed_widths_for(BACKBONE_DIM[a.student])                  # B3
-    mgeo = manifold_geometry(teacher_feats, y_train, a.manifold_samples_per_class,  # M2
+    fixed_widths = fixed_widths_for(BACKBONE_DIM[a.student])                  
+    mgeo = manifold_geometry(teacher_feats, y_train, a.manifold_samples_per_class,  
                              a.data_seed)
     cap_d = max(2, min(BACKBONE_DIM[a.student], mgeo['capacity_width']))
     safe_write_text(out / 'manifold_geometry.json', json.dumps(mgeo, indent=2))
@@ -1646,7 +1618,7 @@ def run():
           f"PCA d={pca_d} (raw {pca_d_raw}) | Effective rank d={erank_d} (raw {erank_d_raw}) | "
           f"Fixed widths {fixed_widths}")
 
-    safe_write_text(out / 'dimension_estimates.json', json.dumps({           # B7
+    safe_write_text(out / 'dimension_estimates.json', json.dumps({           
         'mle_d': mle_d, 'mle_float': mle_float, 'mle_stability': stab,
         'feature_space': 'L2-normalised CLIP image embeddings (MLE, PCA, effective rank)',
         'pca_d': pca_d, 'pca_variance_threshold': a.pca_variance_threshold,
@@ -1665,11 +1637,11 @@ def run():
     if device.type == 'cuda':
         torch.cuda.empty_cache()
 
-    # B5: parse dims with pca and erank tokens; fixed widths are always included
+    
     full_d = BACKBONE_DIM[a.student]
     dims = parse_dims(a.dims, mle_d, pca_d, erank_d, full_d, fixed_widths, cap_d)
     configs = [(m, d, s, 'linear') for s in seeds for d in dims for m in modes]
-    if not a.no_identity_baseline:                                            # G1
+    if not a.no_identity_baseline:                                            
         configs += [(m, full_d, s, 'identity') for s in seeds for m in modes]
     print(f'Dims {dims} (+ identity baseline at {full_d}: {not a.no_identity_baseline}) | '
           f'modes {modes} | seeds {seeds} | {len(configs)} runs on GPUs {gpu_ids}')
@@ -1700,7 +1672,7 @@ def run():
             try:
                 collect(*train_one(*cfg, teacher_feats, teacher_txt, ds_train, ds_test,
                                    vlm_dim, device, a, teacher_rot=teacher_rot))
-            except Exception:                                                  # P6
+            except Exception:                                                  
                 import traceback
                 failed[run_tag(*cfg)] = traceback.format_exc()
                 print(f'[ERROR] {run_tag(*cfg)}\n{failed[run_tag(*cfg)]}', flush=True)
@@ -1725,11 +1697,10 @@ def run():
     if not a.no_identity_baseline:
         wanted |= {run_tag(m, full_d, s, 'identity') for s in seeds for m in modes}
     results = [r for r in results if r['tag'] in wanted]
-    for r in results:                       # rows resumed from older runs
+    for r in results:                       
         r.setdefault('bottleneck_kind', 'linear')
-    # Persist completed checkpoints/results before checking completeness. Do not
-    # publish an oracle or Pareto analysis from a partial dimension x seed grid
-    # unless --allow-partial is given (F4).
+
+
     safe_to_csv(pd.DataFrame(results), out / 'results_per_seed.csv', index=False)
     missing_tags = sorted(wanted - {r['tag'] for r in results})
     safe_write_text(out / 'missing_runs.json', json.dumps(missing_tags, indent=2))
@@ -1750,7 +1721,7 @@ def run():
     if a.benchmark == 'after':
         print('\nBenchmarking saved models sequentially on an idle GPU ...')
         bench_rows = benchmark_saved(results, out, device, a)
-    safe_write_text(out / 'hardware.json', json.dumps(hardware_info(device, a), indent=2))  # P6
+    safe_write_text(out / 'hardware.json', json.dumps(hardware_info(device, a), indent=2))  
 
     safe_to_csv(pd.DataFrame(curves_all), out / 'training_history.csv', index=False)
     safe_to_csv(pd.DataFrame(bench_rows), out / 'benchmark_trials.csv', index=False)

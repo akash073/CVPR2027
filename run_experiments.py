@@ -8,9 +8,9 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-# ══════════════════════════════ SETTINGS ══════════════════════════════════════
-# Datasets to run, in order. Comment out lines you do not want.
-# name: (training script, extra flags for that dataset)
+
+
+
 DATASETS = {
      'fmnist':         ('fmnist.py',       []),
      'svhn':         ('svhn.py',         []),
@@ -19,53 +19,50 @@ DATASETS = {
      'tinyimagenet': ('tinyimagenet200.py', ['--dims', '2,4,8,12,16,24,32,48,64,96,128,192,256, mle*0.5,mle*0.75,mle,pca,erank,cap,mle*1.25,mle*1.5,full']),
 }
 
-# ── Teacher(s) ────────────────────────────────────────────────────────────────
-# Each teacher gets its own output folders, so ViT-B/32 and ViT-L/14 results never mix.
-# Keys are short tags used in folder names. Uncomment 'vitb32' to run both teachers.
+
+
+
 TEACHERS = {
-
-    #'vith14': {'model': 'ViT-H-14', 'pretrained': 'laion2b_s32b_b79k', 'dim': 1024},
-
-    #'vitl14': {'model': 'ViT-L-14', 'pretrained': 'laion2b_s32b_b82k', 'dim': 768},
+    'vitl14': {'model': 'ViT-L-14', 'pretrained': 'laion2b_s32b_b82k', 'dim': 768},
     'vitb32': {'model': 'ViT-B-32', 'pretrained': 'laion2b_s34b_b79k', 'dim': 512},
 }
 
-# Student models to run on every dataset.
-# Options: resnet18, resnet50, mobilenet_v2, mobilenet_v3_large, efficientnet_b0, convnext_tiny
+
+
 STUDENTS = [
     'resnet18',
     'mobilenet_v2',
     'efficientnet_b0',
 ]
-# ── Core training settings ────────────────────────────────────────────────────
-EPOCHS_DEFAULT = 50          # use a small value (e.g. 5) only for quick tests
-SEEDS = '42'           # three seeds so standard deviations are defined
+
+EPOCHS_DEFAULT = 50          
+SEEDS = '42'           
 MODES = 'labels,feat,rkd,crd,dkd,vl2lite,sskd,clipkd'
 
-# Grid starts at 2 so a plateau at the smallest width can be detected (d_1pp < 8)
+
 DIMS = ('2,4,8,12,16,24,32,48,64,96,128,'
         'mle*0.5,mle*0.75,mle,pca,erank,cap,mle*1.25,mle*1.5,full')
 
-# Subset the training set for quick tests; set to None for full-data runs.
-MAX_TRAIN = None             # e.g. 2000 for a smoke test
 
-# Ablations: each gets its own output folder. 'main' uses student-only augmentation;
-# 'matched_views' trains on un-augmented images, so teacher and student see the same view.
+MAX_TRAIN = None             
+
+
+
 ABLATIONS = {
     'main':          [],
-    #'matched_views': ['--no-augment'],
+    
 }
 
-GPUS = '0'          # e.g. '0,1' for two GPUs
-NUM_WORKERS = 4     # dataloader workers per run
+GPUS = '0'          
+NUM_WORKERS = 4     
 
-# Extra flags added to EVERY run, e.g. ['--label-smoothing', '0']
+
 EXTRA_FLAGS = []
 
 DATA_ROOT    = './data'
-RESULTS_ROOT = 'results'    # output: results/<teacher>/<dataset>_<student>_e<epochs>/
-SKIP_FINISHED = True        # skip runs whose pareto_summary.csv is complete
-# ══════════════════════════════════════════════════════════════════════════════
+RESULTS_ROOT = 'results'    
+SKIP_FINISHED = True        
+
 
 
 def out_folder(teacher: str, dataset: str, student: str, epochs: int,

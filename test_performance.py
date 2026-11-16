@@ -12,9 +12,9 @@ from sklearn.inspection import permutation_importance
 from sklearn.metrics import accuracy_score, balanced_accuracy_score
 
 
-# ============================================================
-# 1. CONFIGURATION
-# ============================================================
+
+
+
 
 ROOT = Path.cwd()
 TEST_DIR = ROOT / "test"
@@ -26,7 +26,7 @@ DELTA = 1.0
 DATASET_TO_PLOT = "cifar100"
 METRIC = "balanced_accuracy_pct"
 
-# Feature importance settings
+
 COMPUTE_IMPORTANCE = True
 IMPORTANCE_REPEATS = 30
 IMPORTANCE_SEED = 42
@@ -50,7 +50,7 @@ STUDENT_LABELS = {
     "efficientnet_b0": "EfficientNet-B0",
 }
 
-# FIX: these two dictionaries were referenced but not defined
+
 STUDENT_COLORS = {
     "resnet18": "#4D83A6",
     "mobilenet_v2": "#E5AB53",
@@ -108,9 +108,9 @@ FEATURE_LABELS = {
 }
 
 
-# ============================================================
-# 2. CVPR STYLE
-# ============================================================
+
+
+
 
 plt.rcParams.update({
     "font.family": "DejaVu Sans",
@@ -128,9 +128,9 @@ plt.rcParams.update({
 })
 
 
-# ============================================================
-# 3. PARSE INPUT FILENAMES
-# ============================================================
+
+
+
 
 FILE_RE = re.compile(
     r"^(.*?)_e\d+_pareto_summary(?:\(\d+\))?\.csv$",
@@ -180,9 +180,9 @@ def parse_filename(filename):
     )
 
 
-# ============================================================
-# 4. EXTRACT GEOMETRY
-# ============================================================
+
+
+
 
 def selected_dimension(raw, name):
     column = f"{name}_selected"
@@ -199,9 +199,9 @@ def selected_dimension(raw, name):
     return float(values[0]) if len(values) else np.nan
 
 
-# ============================================================
-# 5. LOAD CIFAR-100 TEST FILES
-# ============================================================
+
+
+
 
 def load_test_data():
     if not TEST_DIR.is_dir():
@@ -274,9 +274,9 @@ def load_test_data():
     return pd.concat(records, ignore_index=True)
 
 
-# ============================================================
-# 6. LOAD FIVE SAVED CLASSIFIERS
-# ============================================================
+
+
+
 
 def load_classifiers():
     classifiers = {}
@@ -289,9 +289,9 @@ def load_classifiers():
     return classifiers
 
 
-# ============================================================
-# 7. EVALUATE CLASSIFIERS
-# ============================================================
+
+
+
 
 def evaluate_classifiers(data, classifiers):
     results = []
@@ -325,9 +325,9 @@ def evaluate_classifiers(data, classifiers):
     return scores
 
 
-# ============================================================
-# 7b. FEATURE IMPORTANCE
-# ============================================================
+
+
+
 
 def _original_feature(encoded_name):
     """Map an encoded column name (e.g. 'cat__mode_rkd') back to its input feature."""
@@ -385,7 +385,7 @@ def compute_feature_importance(data, classifiers):
                 "importance_std_pp": 100 * std,
             })
 
-        # Impurity importance (tree models only)
+
         steps = getattr(model, "named_steps", {})
         est = steps.get("model")
         pre = steps.get("features")
@@ -410,7 +410,7 @@ def compute_feature_importance(data, classifiers):
     perm.to_csv(OUT_DIR / "feature_importance_permutation.csv", index=False)
     tree.to_csv(OUT_DIR / "feature_importance_tree.csv", index=False)
 
-    # Print readable tables (features x models)
+
     order = [short for _, short, _ in MODELS]
     perm_table = (perm.pivot(index="feature", columns="model_short", values="importance_mean_pp")
                       .reindex(index=FEATURES, columns=order).round(2))
@@ -436,7 +436,7 @@ def plot_feature_importance(perm):
 
     order = [short for _, short, _ in MODELS]
     colors = ["#1B3A6B", "#5B8DB8", "#9DC3E6", "#C00000", "#BFBFBF"]
-    feats = FEATURES[::-1]                      # top-to-bottom in FEATURES order
+    feats = FEATURES[::-1]                      
     y = np.arange(len(feats))
     h = 0.16
 
@@ -472,9 +472,9 @@ def plot_feature_importance(perm):
     print(f"Saved: {out}")
 
 
-# ============================================================
-# 8. PLOT FIGURE 3
-# ============================================================
+
+
+
 
 def plot_figure3(scores):
     fig, axes = plt.subplots(1, 2, figsize=(7.0, 2.35), sharey=True)
@@ -507,7 +507,7 @@ def plot_figure3(scores):
                 zorder=3,
             )
 
-            # Percentage values above bars
+
             for bar, value in zip(bars, values):
                 if not np.isfinite(value):
                     bar.set_visible(False)
@@ -528,7 +528,7 @@ def plot_figure3(scores):
         ax.set_ylim(0, 112)
         ax.set_yticks([0, 20, 40, 60, 80, 100])
 
-        # ViT teacher names BELOW the graphs
+
         ax.set_xlabel(TEACHER_LABELS[teacher], fontsize=10, fontweight="bold", labelpad=8)
 
         ax.grid(axis="y", linestyle="--", linewidth=0.45, alpha=0.25)
@@ -543,7 +543,7 @@ def plot_figure3(scores):
         fontsize=10, fontweight="bold",
     )
 
-    # Student legend at TOP
+
     handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, 0.99),
                ncol=3, frameon=False, fontsize=6.5, handlelength=1.3, columnspacing=1.8)
@@ -557,9 +557,9 @@ def plot_figure3(scores):
     print(f"\nSaved:\n{base}.pdf")
 
 
-# ============================================================
-# 9. MAIN
-# ============================================================
+
+
+
 
 def main():
     print("=" * 60)
